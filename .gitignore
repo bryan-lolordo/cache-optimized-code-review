@@ -1,0 +1,32 @@
+# environment & secrets
+.env
+
+# python
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# personal docs / notes
+docs/
+
+# claude code
+.claude/
+
+# langsmith / langchain
+.langsmith/
