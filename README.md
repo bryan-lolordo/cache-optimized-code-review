@@ -49,6 +49,28 @@ END
 
 **Sabotage node (demo only):** Injects cache rule violations on a rotating schedule so the validator and corrector can be observed in action via LangSmith traces. Iteration 1 violates Rule 1, iteration 2 violates Rule 2, iteration 3 violates Rule 3, iteration 4+ passes clean.
 
+## LangGraph Patterns Used
+
+This project leverages several core LangGraph capabilities and design patterns:
+
+| Pattern | How It's Used |
+|---------|--------------|
+| **StateGraph + TypedDict** | `CodeReviewState` defines the shared state schema with typed fields (`Finding`, `TestResults`) so all nodes operate on a known data contract |
+| **Reducers** | `operator.add` on `findings` for parallel accumulation; custom `take_last` on `cached_prefix`, `next_node`, `user_message`, `tool_results` for sequential overwrites in the fixer loop |
+| **Parallelization (fan-out/fan-in)** | `route_supervisor` returns a list of four node names — LangGraph executes all reviewers in parallel and merges results via reducers |
+| **Orchestrator-Worker** | Supervisor dispatches specialized workers, collects findings, synthesizes a report, then hands off to the fixer loop |
+| **Conditional Edges** | `add_conditional_edges` on supervisor (fan-out vs. fix), cache_validator (clean vs. violation), and test_code (loop vs. escape hatch) |
+| **Command Routing** | `fix_issues` uses `Command(goto=...)` to self-route — it owns the decision to continue fixing or finalize, keeping routing logic where context lives |
+| **Evaluator-Optimizer Loop** | `fix_issues` → `fix_issues_llm` → `test_code` → back to `fix_issues` — generates a fix, evaluates it, loops until all issues are resolved or the escape hatch fires |
+| **RetryPolicy** | All LLM nodes use `RetryPolicy(max_attempts=3)` for transient API failures |
+| **Checkpointing** | `MemorySaver` enables durable execution — graph state persists at every node boundary |
+| **Streaming** | `graph.stream(stream_mode="updates")` provides real-time per-node output during execution |
+
+**Design considerations:**
+- **State stores raw data, not formatted text** — nodes format prompts locally from state fields, so prompt changes don't require state schema changes
+- **Nodes own their routing when they have context** — `fix_issues` and review workers use `Command`; graph-level routing is reserved for decisions that don't require node context
+- **Single source of truth for each decision** — `fix_issues` alone decides when to finalize; `test_code` alone decides if a fix passed; no decision is split across nodes
+
 ## Project Structure
 
 ```
