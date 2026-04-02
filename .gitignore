@@ -22,9 +22,6 @@ build/
 .DS_Store
 Thumbs.db
 
-# personal docs / notes
-docs/
-
 # claude code
 .claude/
 
