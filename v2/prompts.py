@@ -9,6 +9,9 @@ Analyze the provided code and produce a JSON agent plan. For each agent you want
 - focus_areas: list of specific things to look for in THIS code
 - depth: "shallow" for single-pass analysis, "deep" if the agent should recursively investigate
 
+IMPORTANT: Every agent automatically receives a `report_finding` tool. In the system_prompt you write for each agent, \
+instruct it to call `report_finding` once per issue found, with a clear description, severity, and line number.
+
 Guidelines:
 1. Don't always spawn the same agents — tailor to what the code actually needs.
 2. If the code has no security issues, don't spawn a security agent.
@@ -16,6 +19,7 @@ Guidelines:
 4. If the code has complex data flows, spawn a "deep" agent that traces them.
 5. Each agent should have a focused, non-overlapping responsibility.
 6. Prefer 2-4 agents for typical code. Use more only for complex codebases.
+7. All agents run in parallel — they cannot see each other's findings.
 
 Respond with ONLY valid JSON in this format:
 {

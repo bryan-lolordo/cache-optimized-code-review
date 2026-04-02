@@ -50,28 +50,20 @@ for chunk in graph.stream(
             print(f"-- {node_name} --")
             continue
 
-        # deep supervisor — show the agent plan
+        # deep supervisor — shows plan, then agents dispatch in parallel via Send
         if node_name == "deep_supervisor":
             plan = node_output.get("agent_plan", [])
             reasoning = node_output.get("plan_reasoning", "")
             print(f"-- {node_name} --")
             print(f"  Reasoning: {reasoning}")
-            print(f"  Spawning {len(plan)} agents:")
+            print(f"  Spawning {len(plan)} agents in parallel:")
             for spec in plan:
                 tools_str = ", ".join(t["name"] for t in spec.get("tools", []))
                 print(f"    - {spec['name']} ({spec['depth']}) — {spec['role']}")
-                print(f"      tools: [{tools_str}]")
+                print(f"      tools: [{tools_str}] + report_finding")
                 print(f"      focus: {spec.get('focus_areas', [])}")
 
-        # dispatch — show which agent is next
-        elif node_name == "dispatch_agent":
-            agent = node_output.get("active_agent")
-            remaining = len(node_output.get("pending_agents", []))
-            if agent:
-                print(f"-- {node_name} --")
-                print(f"  Dispatching: {agent['name']} ({remaining} remaining)")
-
-        # execute — show findings
+        # execute — show findings (runs in parallel for each agent)
         elif node_name == "execute_agent":
             print(f"-- {node_name} --")
             if "findings" in node_output:

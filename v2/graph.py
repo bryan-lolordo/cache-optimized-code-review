@@ -3,8 +3,8 @@ from langgraph.types import RetryPolicy
 from langgraph.graph import StateGraph, START, END
 from v2.state import DeepReviewState
 
-from v2.nodes.deep_supervisor import deep_supervisor
-from v2.nodes.agent_factory import dispatch_agent, execute_agent, route_after_agent
+from v2.nodes.deep_supervisor import deep_supervisor, route_to_agents
+from v2.nodes.agent_factory import execute_agent
 from v2.nodes.synthesize import synthesize
 from v2.nodes.deep_fixer import (
     select_issue,
@@ -26,8 +26,7 @@ workflow = StateGraph(DeepReviewState)
 # ── Phase 1: Dynamic agent planning ──
 workflow.add_node("deep_supervisor", deep_supervisor, retry_policy=retry)
 
-# ── Phase 2: Agent dispatch loop ──
-workflow.add_node("dispatch_agent", dispatch_agent)
+# ── Phase 2: Parallel agent execution (via Send fan-out) ──
 workflow.add_node("execute_agent", execute_agent, retry_policy=retry)
 
 # ── Phase 3: Synthesize findings ──
@@ -55,18 +54,15 @@ workflow.add_node("finalize", finalize)
 # Entry → deep supervisor analyzes code and builds agent plan
 workflow.add_edge(START, "deep_supervisor")
 
-# Supervisor → start dispatching agents
-workflow.add_edge("deep_supervisor", "dispatch_agent")
-
-# Dispatch → execute the active agent
-workflow.add_edge("dispatch_agent", "execute_agent")
-
-# After execution → dispatch next or synthesize
+# Supervisor → routing function returns Send objects for parallel fan-out
 workflow.add_conditional_edges(
-    "execute_agent",
-    route_after_agent,
-    ["dispatch_agent", "synthesize"],
+    "deep_supervisor",
+    route_to_agents,
+    ["execute_agent"],
 )
+
+# All parallel agents fan back into synthesize
+workflow.add_edge("execute_agent", "synthesize")
 
 # Synthesize → start fixing
 workflow.add_edge("synthesize", "select_issue")

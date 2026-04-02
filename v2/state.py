@@ -33,9 +33,7 @@ class DeepReviewState(TypedDict):
     agent_plan: Annotated[list[AgentSpec] | None, take_last]
     plan_reasoning: Annotated[str | None, take_last]
 
-    # dynamic agent execution
-    pending_agents: Annotated[list[AgentSpec] | None, take_last]
-    active_agent: Annotated[AgentSpec | None, take_last]
+    # dynamic agent execution (Send handles dispatch — no queue needed)
     sub_agent_results: Annotated[list[SubAgentResult], operator.add]
 
     # review layer output (same as v1 — accumulated from sub-agents)

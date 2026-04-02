@@ -139,5 +139,19 @@ FIX_TOOLS = [
     }
 ]
 
+REPORT_FINDING_TOOL = {
+    "name": "report_finding",
+    "description": "Report a code review finding. Call this tool once for EACH issue you identify in the code.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "issue": {"type": "string", "description": "Clear description of the issue found"},
+            "severity": {"type": "string", "enum": ["critical", "high", "medium", "low"], "description": "Severity level"},
+            "line": {"type": "string", "description": "Line number or range where the issue occurs"},
+        },
+        "required": ["issue", "severity"]
+    }
+}
+
 # all tools combined — used for tool_definitions_snapshot at session start
 ALL_TOOLS = SECURITY_TOOLS + ANALYZER_TOOLS + PERFORMANCE_TOOLS + TEST_GENERATOR_TOOLS + FIX_TOOLS

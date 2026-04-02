@@ -2,12 +2,10 @@ import os
 import json
 import logging
 from anthropic import Anthropic, APIError
+from langgraph.types import Send
 from v2.state import DeepReviewState, AgentSpec
 from v2.prompts import ORCHESTRATOR_SYSTEM_PROMPT, ORCHESTRATOR_BACKGROUND
-from tools import (
-    SECURITY_TOOLS, ANALYZER_TOOLS, PERFORMANCE_TOOLS,
-    TEST_GENERATOR_TOOLS, ALL_TOOLS,
-)
+from tools import ALL_TOOLS
 
 logger = logging.getLogger(__name__)
 client = Anthropic()
@@ -20,7 +18,11 @@ for tool in ALL_TOOLS:
 
 
 def deep_supervisor(state: DeepReviewState) -> dict:
-    """LLM-driven orchestrator that analyzes code and decides what agents to spawn."""
+    """LLM-driven orchestrator that analyzes code and decides what agents to spawn.
+
+    Returns agent_plan and plan_reasoning to state. The routing function
+    (route_to_agents) reads these and returns Send objects for parallel fan-out.
+    """
 
     code = state.get("code_input", "")
 
@@ -60,7 +62,7 @@ Available tools you can assign to agents:
         )
     except APIError as e:
         logger.error("Deep supervisor API call failed: %s", e)
-        return {"error": f"Orchestrator API error: {e}"}
+        return []
 
     # parse the LLM's agent plan
     raw = next(
@@ -79,7 +81,7 @@ Available tools you can assign to agents:
         plan = json.loads(raw)
     except json.JSONDecodeError:
         logger.error("Failed to parse agent plan JSON: %s", raw[:200])
-        return {"error": f"Failed to parse orchestrator plan: {raw[:200]}"}
+        return []
 
     # convert raw plan to typed AgentSpec list
     agent_specs = []
@@ -103,7 +105,7 @@ Available tools you can assign to agents:
 
     reasoning = plan.get("reasoning", "")
     logger.info(
-        "Deep supervisor planned %d agents: %s",
+        "Deep supervisor planned %d agents: %s (parallel via Send)",
         len(agent_specs),
         [s["name"] for s in agent_specs],
     )
@@ -111,6 +113,26 @@ Available tools you can assign to agents:
     return {
         "agent_plan": agent_specs,
         "plan_reasoning": reasoning,
-        "pending_agents": agent_specs,  # queue for dispatch
         "current_code": code,
     }
+
+
+def route_to_agents(state: DeepReviewState) -> list[Send]:
+    """Routing function that returns Send objects for parallel fan-out.
+
+    Called via add_conditional_edges after deep_supervisor.
+    Each Send targets 'execute_agent' with an isolated payload.
+    """
+    agent_specs = state.get("agent_plan") or []
+    code = state.get("code_input", "")
+    reasoning = state.get("plan_reasoning", "")
+
+    return [
+        Send("execute_agent", {
+            "agent_spec": spec,
+            "code_input": code,
+            "agent_plan": agent_specs,
+            "plan_reasoning": reasoning,
+        })
+        for spec in agent_specs
+    ]
