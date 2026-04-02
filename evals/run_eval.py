@@ -88,32 +88,33 @@ def make_target(graph, label: str):
 # Results table
 # ────────────────────────────────────────────
 
+def _extract_scores(results_list):
+    """Extract scores by category from ExperimentResultRow list."""
+    scores = {}
+    for result in results_list:
+        # ExperimentResultRow is a TypedDict: {run, example, evaluation_results}
+        example = result["example"]
+        category = (example.outputs or {}).get("category", "unknown")
+
+        if category not in scores:
+            scores[category] = {}
+
+        # evaluation_results is {"results": [EvaluationResult, ...]}
+        eval_results = result["evaluation_results"]
+        for er in eval_results.get("results", []):
+            scores[category][er.key] = er.score
+
+    return scores
+
+
 def print_comparison_table(v1_results, v2_results):
     """Print a side-by-side comparison of v1 and v2 evaluation results."""
     print("\n" + "=" * 70)
     print("  V1 vs V2 COMPARISON")
     print("=" * 70)
 
-    # collect scores by example
-    v1_scores = {}
-    v2_scores = {}
-
-    for result in v1_results:
-        example_id = str(result.get("example", {}).get("id", "?"))
-        category = (result.get("example", {}).get("outputs", {}) or {}).get("category", "?")
-        key = category
-        if key not in v1_scores:
-            v1_scores[key] = {}
-        for fb in result.get("evaluation_results", []):
-            v1_scores[key][fb.key] = fb.score
-
-    for result in v2_results:
-        category = (result.get("example", {}).get("outputs", {}) or {}).get("category", "?")
-        key = category
-        if key not in v2_scores:
-            v2_scores[key] = {}
-        for fb in result.get("evaluation_results", []):
-            v2_scores[key][fb.key] = fb.score
+    v1_scores = _extract_scores(v1_results)
+    v2_scores = _extract_scores(v2_results)
 
     # print table
     header = f"{'Sample':<28} {'Metric':<20} {'V1':>8} {'V2':>8} {'Winner':>8}"

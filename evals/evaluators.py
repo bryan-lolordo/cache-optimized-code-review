@@ -46,8 +46,14 @@ def finding_recall(run: Run, example: Example) -> EvaluationResult:
 
     for exp in expected:
         keyword = exp["keyword"].lower()
+        # search across all text fields in each finding
         found = any(
-            keyword in (f.get("issue", "") or "").lower()
+            keyword in " ".join([
+                (f.get("issue", "") or ""),
+                (f.get("type", "") or ""),
+                (f.get("source", "") or ""),
+                (f.get("severity", "") or ""),
+            ]).lower()
             for f in actual_findings
         )
         if found:
