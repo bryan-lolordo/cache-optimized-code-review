@@ -74,4 +74,9 @@ workflow.add_conditional_edges(
 workflow.add_edge('finalize', END)
 
 checkpointer = MemorySaver()
-graph = workflow.compile(checkpointer=checkpointer)
+
+# compile without checkpointer for LangGraph Platform (it manages persistence)
+graph = workflow.compile()
+
+# compile with checkpointer for local run.py usage
+graph_local = workflow.compile(checkpointer=checkpointer)

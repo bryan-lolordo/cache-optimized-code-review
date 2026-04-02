@@ -13,7 +13,7 @@ logging.basicConfig(
 )
 
 from tools import ALL_TOOLS
-from v2.graph import graph
+from v2.graph import graph_local as graph
 
 BUGGY_CODE = """
 def get_user(username):

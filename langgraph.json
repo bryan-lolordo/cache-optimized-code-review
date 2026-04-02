@@ -1,0 +1,8 @@
+{
+  "graphs": {
+    "v1_agent": "graph:graph",
+    "v2_agent": "v2.graph:graph"
+  },
+  "dependencies": ["requirements.txt"],
+  "env": ".env"
+}
