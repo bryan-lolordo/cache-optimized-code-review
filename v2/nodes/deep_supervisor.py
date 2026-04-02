@@ -62,7 +62,7 @@ Available tools you can assign to agents:
         )
     except APIError as e:
         logger.error("Deep supervisor API call failed: %s", e)
-        return []
+        return {"agent_plan": [], "plan_reasoning": f"API error: {e}"}
 
     # parse the LLM's agent plan
     raw = next(
@@ -81,7 +81,7 @@ Available tools you can assign to agents:
         plan = json.loads(raw)
     except json.JSONDecodeError:
         logger.error("Failed to parse agent plan JSON: %s", raw[:200])
-        return []
+        return {"agent_plan": [], "plan_reasoning": f"JSON parse error: {raw[:100]}"}
 
     # convert raw plan to typed AgentSpec list
     agent_specs = []

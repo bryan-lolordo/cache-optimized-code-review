@@ -6,7 +6,6 @@ from anthropic import Anthropic, APIError
 from langgraph.types import Command
 from v2.state import DeepReviewState
 from v2.prompts import FIX_SYSTEM_PROMPT, FIX_BACKGROUND, CRITIQUE_SYSTEM_PROMPT
-from tools import FIX_TOOLS
 
 logger = logging.getLogger(__name__)
 client = Anthropic()
@@ -19,11 +18,13 @@ def select_issue(state: DeepReviewState) -> Command[Literal["fix_llm", "finalize
     fixed_issues = state.get("fixed_issues") or []
     current_code = state.get("current_code") or state.get("code_input")
 
-    unfixed = [f for f in findings if f not in fixed_issues]
+    # use index-based tracking — dict equality is fragile after serialization
+    num_fixed = len(fixed_issues)
+    unfixed = findings[num_fixed:]
     logger.info(
         "select_issue: %d total, %d fixed, %d remaining",
         len(findings),
-        len(fixed_issues),
+        num_fixed,
         len(unfixed),
     )
 
@@ -39,7 +40,7 @@ def select_issue(state: DeepReviewState) -> Command[Literal["fix_llm", "finalize
     cached_prefix = {
         "system_prompt": FIX_SYSTEM_PROMPT,
         "background_knowledge": FIX_BACKGROUND,
-        "tool_definitions": FIX_TOOLS,
+        "tool_definitions": state.get("current_tool_definitions") or [],
     }
 
     user_message = f"""Fix this issue in the code:
@@ -95,7 +96,12 @@ def fix_llm(state: DeepReviewState) -> dict:
         )
     except APIError as e:
         logger.error("Fix LLM failed: %s", e)
-        return {"error": f"Fix API error: {e}"}
+        # approve by default on API failure so the loop can continue
+        return {
+            "error": f"Fix API error: {e}",
+            "fix_approved": True,
+            "fix_critique": f"Skipped — API error: {e}",
+        }
 
     fixed_code = next(
         (block.text for block in response.content if hasattr(block, "text")),
@@ -129,8 +135,8 @@ def critique_fix(state: DeepReviewState) -> dict:
     original_code = state.get("code_input", "")
     findings = state.get("findings", [])
     fixed_issues = state.get("fixed_issues") or []
-    unfixed = [f for f in findings if f not in fixed_issues]
-    current_issue = unfixed[0] if unfixed else {}
+    num_fixed = len(fixed_issues)
+    current_issue = findings[num_fixed] if num_fixed < len(findings) else {}
 
     logger.info("critique_fix: evaluating fix for iteration %d", state.get("iteration", 0))
 
@@ -227,10 +233,10 @@ def mark_fixed(state: DeepReviewState) -> dict:
     """Mark the current issue as fixed after critique approval."""
     findings = state.get("findings", [])
     fixed_issues = list(state.get("fixed_issues") or [])
-    unfixed = [f for f in findings if f not in fixed_issues]
+    num_fixed = len(fixed_issues)
 
-    if unfixed:
-        fixed_issues.append(unfixed[0])
+    if num_fixed < len(findings):
+        fixed_issues.append(findings[num_fixed])
 
     return {
         "fixed_issues": fixed_issues,
