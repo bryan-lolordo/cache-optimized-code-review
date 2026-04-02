@@ -1,6 +1,6 @@
 # V2 — What Changed and Why
 
-> Everything the v2 branch expands upon from v1: deep agents, LangSmith evaluation, and LangChain skills. Built on the `v2-deep-agents` branch.
+> Everything the v2 branch expands upon from v1: deep agents, parallel execution, structured tool-calling, LangSmith evaluation, LangChain skills, and LangGraph Platform deployment. Built on the `v2-deep-agents` branch.
 
 ---
 
@@ -8,11 +8,15 @@
 
 V1 is a fixed pipeline — four hardcoded workers, a linear fixer, and cache enforcement that proves the paper's rules work. V2 asks: what if the system could think about what it needs before it starts working?
 
-Three expansions were made on the `v2-deep-agents` branch:
+Five expansions were made on the `v2-deep-agents` branch:
 
-1. **Deep agent architecture** — an LLM-driven orchestrator that dynamically decides what agents to spawn, replacing the hardcoded 4-worker fan-out
-2. **LangSmith evaluation suite** — a quantitative comparison framework that scores both pipelines on the same test dataset
-3. **LangChain skills** — coding agent instruction files that enhance Claude Code with expert LangChain/LangGraph knowledge
+1. **Deep agent architecture** — an LLM-driven orchestrator that dynamically decides what agents to spawn
+2. **Parallel execution via Send** — all dynamically spawned agents run concurrently, not sequentially
+3. **Structured tool-calling** — agents report findings via a typed `report_finding` tool instead of fragile JSON parsing
+4. **LangSmith evaluation suite** — quantitative comparison of v1 vs v2 on the same test dataset
+5. **LangGraph Platform deployment** — both graphs served as API endpoints with Studio UI
+
+Plus **LangChain skills** — 11 coding agent instruction files for expert LangChain/LangGraph knowledge.
 
 ---
 
@@ -23,8 +27,9 @@ Three expansions were made on the `v2-deep-agents` branch:
 | Aspect | V1 | V2 |
 |--------|----|----|
 | **Workers** | 4 hardcoded nodes in `graph.py` | LLM decides at runtime — could be 1, could be 6 |
+| **Dispatch** | Parallel fan-out via list return | Parallel fan-out via `Send` API with dynamic payloads |
 | **Prompts** | Static strings in `prompts.py` | Orchestrator generates per-agent prompts dynamically |
-| **Tools** | Fixed per worker (`SECURITY_TOOLS`, `ANALYZER_TOOLS`, etc.) | Selected from a shared registry per agent |
+| **Tools** | Fixed per worker (`SECURITY_TOOLS`, `ANALYZER_TOOLS`, etc.) | Selected from registry per agent + shared `report_finding` tool |
 | **Fixer** | Single pass → test → loop | Fix → critique (reflection) → retry if rejected → loop |
 | **Cache enforcement** | `cache_validator` + `cache_corrector` in fixer loop | Same v1 nodes, reused directly — proves cache rules hold with dynamic topology |
 | **Sabotage node** | Present in fixer loop for demo | Removed — replaced by the critique loop as the quality gate |
@@ -36,13 +41,11 @@ START
   ↓
 deep_supervisor (LLM analyzes code, generates agent plan as JSON)
   ↓
-dispatch_agent ←────────────────────────┐
-  ↓                                     │
-execute_agent (runs sub-agent with      │
-  dynamic prompt/tools/focus)           │
-  ↓                                     │
-  ├── more agents pending? ─────────────┘
-  ↓
+route_to_agents (returns Send objects for parallel fan-out)
+  ↓ ↓ ↓ (parallel via Send API)
+execute_agent  execute_agent  execute_agent
+  (each with dynamic prompt/tools/focus + report_finding tool)
+  ↓ ↓ ↓ (findings merge via operator.add)
 synthesize (merge findings, build report)
   ↓
 select_issue ←──────────────────────────┐
@@ -59,15 +62,17 @@ mark_fixed ───────────────────────
 finalize → END
 ```
 
-13 nodes total — comparable to v1's 12, but with fundamentally different behavior.
+12 nodes total. All dynamically spawned agents execute in parallel — verified by timestamps showing simultaneous starts.
 
 ### Key decisions
 
-**Dynamic agent planning via LLM.** The `deep_supervisor` makes an API call with a meta-prompt that analyzes the code and returns a JSON agent plan — agent names, system prompts, tool selections, focus areas, and depth level. In testing, the supervisor spawns 2 agents for the demo code (security + secrets) instead of v1's fixed 4. The agent count adapts to the task.
+**Dynamic agent planning via LLM.** The `deep_supervisor` makes an API call with a meta-prompt that analyzes the code and returns a JSON agent plan — agent names, system prompts, tool selections, focus areas, and depth level. In testing, the supervisor spawns 2-3 agents for the demo code instead of v1's fixed 4. The agent count adapts to the task.
 
-**Sequential agent dispatch.** V2's agents are generated at runtime — LangGraph can't fan out to nodes that don't exist at compile time. A dispatch loop (`dispatch_agent` → `execute_agent` → check queue) is simpler than `Send` with dynamic payloads and avoids v1's parallel state collision issues. For 2-4 agents the latency overhead is ~5-10 seconds.
+**Parallel execution via Send API.** The `route_to_agents` routing function returns a list of `Send("execute_agent", payload)` objects — one per agent. LangGraph dispatches all of them concurrently to the same `execute_agent` node, each with an isolated state payload containing the `AgentSpec` and `code_input`. Findings merge back via `operator.add` on the `findings` field — the same reducer pattern v1 uses for its parallel fan-out.
 
-**Tool call extraction from sub-agents.** When agents are given tools, they return `tool_use` blocks instead of text. The `execute_agent` node parses both block types — tool calls are converted to findings by extracting the tool name and input parameters. A `_extract_json` helper handles markdown fences, embedded JSON, and mixed responses.
+**Why Send works here but not in v1's original design:** V1's parallel state collision (see learning_journey Section 13) happened because workers wrote to shared fields like `cached_prefix` and `next_node`. V2's `execute_agent` only writes to `findings` and `sub_agent_results` — both have `operator.add` reducers. Send gives each agent isolated input, and the only shared output fields have proper accumulation reducers. No collision.
+
+**Structured tool-calling with `report_finding`.** Every agent receives a `report_finding` tool in addition to its specialist tools (scan_security, detect_sql_injection, etc.). The tool has typed fields: `issue` (string description), `severity` (enum: critical/high/medium/low), and `line` (line number). When agents call this tool, the finding is extracted directly from the structured input — no JSON parsing needed. Agents can also use their specialist tools; the extraction handles both `report_finding` calls and other tool calls as fallback.
 
 **Critique/reflection loop.** V1's `test_code` only checks syntax with `ast.parse()`. V2 replaces it with `critique_fix` — a separate LLM call that evaluates whether the fix is semantically correct. Rejected fixes get retried with the critique feedback appended to the prompt. This is the evaluator-optimizer pattern: generate → evaluate → refine.
 
@@ -83,14 +88,12 @@ V2 extends v1's `CodeReviewState` with `DeepReviewState`:
 # new in v2
 agent_plan: list[AgentSpec] | None        # supervisor's dynamic plan
 plan_reasoning: str | None                 # why these agents were chosen
-pending_agents: list[AgentSpec] | None     # dispatch queue
-active_agent: AgentSpec | None             # currently executing agent
 sub_agent_results: list[SubAgentResult]    # accumulated results (operator.add)
 fix_critique: str | None                   # critique feedback
 fix_approved: bool | None                  # critique verdict
 ```
 
-All v1 cache enforcement and fixer fields are preserved. V1's cache validator works without modification.
+All v1 cache enforcement and fixer fields are preserved. V1's cache validator works without modification. Send handles agent dispatch — no queue or active agent fields needed.
 
 ### File structure
 
@@ -98,17 +101,17 @@ All v1 cache enforcement and fixer fields are preserved. V1's cache validator wo
 v2/
 ├── state.py              # DeepReviewState, AgentSpec, SubAgentResult
 ├── prompts.py            # Meta-prompts for orchestrator, fixer, critique
-├── graph.py              # StateGraph wiring — 13 nodes
+├── graph.py              # StateGraph wiring — 12 nodes, Send fan-out
 ├── run.py                # Entry point with streaming output
 └── nodes/
-    ├── deep_supervisor.py   # LLM-driven orchestrator
-    ├── agent_factory.py     # dispatch_agent, execute_agent, route_after_agent
+    ├── deep_supervisor.py   # LLM-driven orchestrator + route_to_agents (Send)
+    ├── agent_factory.py     # execute_agent with report_finding extraction
     ├── deep_fixer.py        # select_issue, fix_llm, critique_fix, retry_fix, mark_fixed
     ├── synthesize.py        # Merge findings from all agents
     └── finalize.py          # Compile final report
 ```
 
-V2 imports from the root: `state.py`, `tools.py`, `nodes/cache_validator.py`, `nodes/cache_corrector.py`.
+V2 imports from the root: `state.py`, `tools.py` (including `REPORT_FINDING_TOOL`), `nodes/cache_validator.py`, `nodes/cache_corrector.py`.
 
 ---
 
@@ -143,14 +146,6 @@ Ground truth uses keyword matching — "sql injection" matches any finding conta
 | **agent_efficiency** | Findings per agent spawned (v2 only, N/A for v1) | float |
 | **preference_evaluator** | Which pipeline is better overall? LLM-judged comparison | winner |
 
-### Key eval decisions
-
-**Stream accumulation.** `evaluate()` expects `target(inputs) -> dict`, but both graphs use `graph.stream()`. The wrapper accumulates list fields (`findings`, `sub_agent_results`) with `extend` and scalar fields with assignment — respecting `operator.add` reducer semantics.
-
-**Sequential execution.** `max_concurrency=1` avoids rate limits. Each sample triggers a full graph run with multiple API calls. Slower (~15 min) but reliable.
-
-**Anthropic SDK for LLM-graded evals.** `fix_correctness` and `preference_evaluator` use `anthropic.Anthropic()` directly, consistent with how every node in the project makes API calls.
-
 ### Results (first full run, 2026-04-02)
 
 **fix_correctness — V2 wins decisively:**
@@ -165,10 +160,6 @@ Ground truth uses keyword matching — "sql injection" matches any finding conta
 | subtle-security | 0.00 | **1.00** |
 
 **Why V2 wins:** The critique/reflection loop catches when the fixer returns unchanged code and retries with feedback. V1's fixer has no quality gate — `test_code` only checks syntax, not semantic correctness.
-
-**finding_recall — both score low (measurement issue).** Both pipelines find the issues, but findings from tool-call agents store raw code in the `issue` field rather than descriptions. The keyword matcher doesn't find "sql injection" in a raw SQL query. Fix: update ground truth keywords or change agent finding extraction.
-
-**token_efficiency — 0.0 for both (expected).** Prompts are ~600-750 tokens, below Anthropic's 1024-token cache activation threshold. Cache hits will appear once prompts are expanded.
 
 **Dynamic agent behavior (from LangSmith traces):**
 
@@ -191,12 +182,6 @@ evals/
 └── run_eval.py        # Main harness — wraps graphs, runs evaluate(), prints table
 ```
 
-### How to run
-
-```bash
-python -m evals.run_eval
-```
-
 ### Viewing results in LangSmith
 
 1. Go to **https://smith.langchain.com** → **Datasets & Testing**
@@ -206,7 +191,85 @@ python -m evals.run_eval
 
 ---
 
-## 3. LangChain Skills
+## 3. LangGraph Platform Deployment
+
+### What it is
+
+LangGraph Platform turns your graphs into hosted API endpoints. Instead of running `python v2/run.py` locally, you call your graph over HTTP with streaming, checkpointing, and monitoring built in.
+
+### Configuration
+
+The platform is configured via `langgraph.json` at the project root:
+
+```json
+{
+  "graphs": {
+    "v1_agent": "graph:graph",
+    "v2_agent": "v2.graph:graph"
+  },
+  "dependencies": ["requirements.txt"],
+  "env": ".env"
+}
+```
+
+- **`graphs`** — maps a name to a `module:variable` import path. Both v1 and v2 are served simultaneously.
+- **`dependencies`** — what to install. Points to `requirements.txt`.
+- **`env`** — where API keys live (Anthropic, LangSmith, etc.).
+
+### Key decision: no checkpointer in deployed graphs
+
+The platform manages persistence automatically. Graphs compiled with `MemorySaver` will be rejected — the platform has its own storage backend. To support both local development and platform deployment, both `graph.py` and `v2/graph.py` now export two versions:
+
+```python
+# for LangGraph Platform (no checkpointer — platform handles it)
+graph = workflow.compile()
+
+# for local run.py scripts (MemorySaver for checkpointing)
+graph_local = workflow.compile(checkpointer=checkpointer)
+```
+
+`langgraph.json` points to `graph` (no checkpointer). `run.py` and `v2/run.py` import `graph_local`.
+
+### How to run
+
+```bash
+# start the local dev server (requires Docker)
+python -m langgraph_cli dev
+```
+
+This starts:
+- **API** at `http://127.0.0.1:2024`
+- **Studio UI** at `https://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:2024`
+- **API Docs** at `http://127.0.0.1:2024/docs`
+
+### Studio UI
+
+LangGraph Studio is a visual IDE connected to your deployment. You can:
+- Select `v1_agent` or `v2_agent` from the graph dropdown
+- Send code input and watch the graph execute node-by-node
+- Inspect state at each step
+- View the full execution trace
+
+### Testing via API
+
+```bash
+# list available assistants
+curl -s -X POST http://127.0.0.1:2024/assistants/search \
+  -H "Content-Type: application/json" -d '{}'
+
+# create a thread
+curl -s -X POST http://127.0.0.1:2024/threads \
+  -H "Content-Type: application/json" -d '{}'
+
+# stream a run
+curl -s -X POST http://127.0.0.1:2024/threads/{thread_id}/runs/stream \
+  -H "Content-Type: application/json" \
+  -d '{"assistant_id": "v2_agent", "input": {"code_input": "..."}, "stream_mode": "updates"}'
+```
+
+---
+
+## 4. LangChain Skills
 
 ### What they are
 
@@ -240,13 +303,6 @@ The blog post ([langchain.com/blog/langchain-skills](https://blog.langchain.com/
 └── langgraph-persistence/SKILL.md
 ```
 
-### Most relevant to this project
-
-- **deep-agents-core/memory/orchestration** — patterns for exactly what v2 does (dynamic agent spawning, orchestration)
-- **langgraph-fundamentals** — StateGraph, reducers, Command routing
-- **langgraph-human-in-the-loop** — useful for adding `interrupt()` for critical fixes
-- **langgraph-persistence** — checkpointing patterns beyond MemorySaver
-
 ### Install command
 
 ```bash
@@ -255,22 +311,25 @@ npx skills add langchain-ai/langchain-skills --skill '*' --yes
 
 ---
 
-## Running Both Versions
+## Running Everything
 
-Both versions coexist in the same checkout:
+All versions coexist in the same checkout:
 
 ```bash
 # V1 — fixed pipeline, 4 hardcoded workers, sabotage node
 python run.py
 
-# V2 — deep agents, dynamic orchestrator, critique loop
+# V2 — deep agents, parallel Send, critique loop
 python v2/run.py
 
 # Evaluation — compare v1 vs v2 on 6 test samples
 python -m evals.run_eval
+
+# Platform — serve both graphs as API endpoints with Studio UI
+python -m langgraph_cli dev
 ```
 
-V1's code at the project root is untouched. V2 lives in `v2/`. Evals live in `evals/`. Skills live in `.agents/skills/`. They share read-only imports from the root but don't modify each other.
+V1's code at the project root is untouched. V2 lives in `v2/`. Evals live in `evals/`. Skills live in `.agents/skills/`. Platform config is `langgraph.json`. They share read-only imports from the root but don't modify each other.
 
 ---
 
@@ -278,7 +337,7 @@ V1's code at the project root is untouched. V2 lives in `v2/`. Evals live in `ev
 
 1. **finding_recall ground truth** — keywords need to match actual finding output format, or agent finding extraction needs descriptive text
 2. **Prompt expansion for cache hits** — expand prompts past 1024 tokens to activate Anthropic caching
-3. **Parallel agent dispatch** — use LangGraph's `Send` API to fan out dynamically spawned agents in parallel instead of sequentially
-4. **evaluate_existing()** — re-score existing experiments with updated evaluators without re-running pipelines
-5. **Comparative evaluation** — wire `preference_evaluator` into the main harness via `evaluate_comparative()`
-6. **Human-in-the-loop** — use LangGraph's `interrupt()` before applying critical-severity fixes
+3. **evaluate_existing()** — re-score existing experiments with updated evaluators without re-running pipelines
+4. **Comparative evaluation** — wire `preference_evaluator` into the main harness via `evaluate_comparative()`
+5. **Human-in-the-loop** — use LangGraph's `interrupt()` before applying critical-severity fixes
+6. **Production deployment** — deploy to LangGraph Cloud or self-hosted Docker for persistent, multi-tenant access
