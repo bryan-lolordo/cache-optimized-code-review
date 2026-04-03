@@ -27,3 +27,16 @@ Thumbs.db
 
 # langsmith / langchain
 .langsmith/
+.langgraph_api/
+
+# claude code generated
+skills-lock.json
+CLAUDE.md
+CLAUDE.local.md
+
+# python misc
+*.pkl
+*.pckl
+.pytest_cache/
+htmlcov/
+.coverage

@@ -1,13 +1,37 @@
-# Cache-Optimized Code Review Agent
+# 🔍 Cache-Optimized Code Review Agent
 
 A multi-agent code review system built with [LangGraph](https://github.com/langchain-ai/langgraph) that operationalizes the strategic caching recommendations from ["Don't Break the Cache"](https://arxiv.org/abs/2601.06007) (Kevin Frank et al.) to reduce API costs and latency.
+
+---
+
+> ### 📄 For Mike — Technical Pitch
+>
+> I put together a customer-facing technical pitch that walks through how LangChain maps to every layer of the prototype-to-production journey:
+>
+> ### **👉 [From First Agent to Production Systems](docs/customer_facing_technical_pitch.md)**
+>
+> This is the kind of deliverable I'd bring to a pre-sales engagement or a customer discovery session — translating technical depth into a narrative that moves a customer to *yes*. It covers architecture, state management, observability, reliability, evaluation, and infrastructure, all grounded in real results from this project.
+>
+> Everything in that pitch maps directly to what you described for this role:
+>
+> | What You're Looking For | Where It Shows Up |
+> |---|---|
+> | 🎤 **Technical storytelling in pre-sales** | The entire pitch — complex multi-agent concepts explained as business outcomes, not implementation details |
+> | 🔬 **Technical depth in specific domains** | Deep sections on LangGraph state management, cache optimization, evaluation methodology, and LangGraph Platform deployment |
+> | 🌊 **Ambiguity and pace** | Built across two iterations (V1 → V2), each one adapting to what I learned — same way the DE team operates as LangChain's product evolves |
+> | ⚡ **Nimbleness** | Picked up LangGraph, LangSmith evals, structured tool-calling, the Send API, and LangGraph Platform in a single project |
+> | 📈 **Business acumen** | The pitch is framed around customer value and outcomes — not "look what I built" but "here's why this matters to your team and how it gets you to production" |
+>
+> This project is also a proxy for the post-sale motion — showing a customer how to go from a working prototype to something they can trust, scale, and expand across teams, which is exactly how Deployed Engineers drive usage growth on LangSmith.
+
+---
 
 Two versions coexist in this repo:
 
 - **V1 (root):** Four hardcoded workers analyze code in parallel across security, quality, performance, and test coverage. An iterative fixer loop addresses each issue one at a time. A cache enforcement layer validates and self-corrects every LLM call in the fixer loop.
 - **V2 (`v2/`):** An LLM-driven orchestrator dynamically decides what agents to spawn based on the code. Agents execute in parallel via the `Send` API, report findings through a structured `report_finding` tool, and a critique/reflection loop validates each fix before moving on.
 
-## The Three Cache Rules
+## 📐 The Three Cache Rules
 
 Derived from the paper's strategic recommendations (Section 5.1) and encoded as operational constraints:
 
@@ -17,9 +41,10 @@ Derived from the paper's strategic recommendations (Section 5.1) and encoded as 
 | **Rule 2** | Tool results never enter the cached prefix | Tool outputs are dynamic — including them causes cache misses on every turn |
 | **Rule 3** | Tool definitions don't mutate after session start | Modifying tools mid-session cascades invalidation through the entire cache hierarchy |
 
-## Architecture
+## 🏗️ Architecture
 
-### V1 — Fixed Pipeline
+<details>
+<summary><strong>V1 — Fixed Pipeline</strong></summary>
 
 ```
 START
@@ -48,7 +73,10 @@ finalize
 END
 ```
 
-### V2 — Deep Agents
+</details>
+
+<details>
+<summary><strong>V2 — Deep Agents</strong></summary>
 
 ```
 START
@@ -76,6 +104,8 @@ mark_fixed ----------------------------------------+
 finalize -> END
 ```
 
+</details>
+
 **Key differences from V1:**
 - Workers are dynamically planned by the LLM — could be 1, could be 6
 - `Send` API dispatches agents in parallel with isolated payloads
@@ -83,7 +113,7 @@ finalize -> END
 - Critique/reflection loop replaces syntax-only `test_code` validation
 - Cache enforcement from v1 is reused directly — proves cache rules are topology-independent
 
-## LangGraph Patterns Used
+## 🧩 LangGraph Patterns Used
 
 | Pattern | How It's Used |
 |---------|--------------|
@@ -99,7 +129,8 @@ finalize -> END
 | **Checkpointing** | `MemorySaver` for local execution; platform-managed for deployment |
 | **Streaming** | `graph.stream(stream_mode="updates")` for real-time per-node output |
 
-## Project Structure
+<details>
+<summary><strong>📁 Project Structure</strong></summary>
 
 ```
 .
@@ -140,7 +171,8 @@ finalize -> END
 │   └── run_eval.py           # Evaluation harness — runs v1 vs v2 comparison
 ├── docs/
 │   ├── learning_journey.md   # V1 design decisions and learning notes
-│   └── v2_expansion.md       # V2 architecture, eval results, platform setup
+│   ├── v2_expansion.md       # V2 architecture, eval results, platform setup
+│   └── customer_facing_technical_pitch.md  # Technical pitch — prototype to production
 ├── .agents/skills/           # LangChain skills for coding agent context (11 skills)
 ├── langgraph.json            # LangGraph Platform config — serves both v1 and v2
 ├── requirements.txt
@@ -148,7 +180,9 @@ finalize -> END
 └── .gitignore
 ```
 
-## Setup
+</details>
+
+## ⚙️ Setup
 
 **Prerequisites:** Python 3.11+
 
@@ -180,7 +214,7 @@ finalize -> END
    LANGCHAIN_API_KEY=your-langchain-api-key-here
    ```
 
-## Usage
+## 🚀 Usage
 
 ```bash
 # V1 — fixed pipeline, 4 hardcoded workers, cache enforcement with sabotage demo
@@ -198,7 +232,7 @@ python -m langgraph_cli dev
 
 Traces for all runs are available in [LangSmith](https://smith.langchain.com) under the `cache-optimized-code-review` project.
 
-## LangGraph Platform
+## 🌐 LangGraph Platform
 
 Both graphs are served simultaneously via `langgraph.json`:
 
@@ -218,7 +252,7 @@ python -m langgraph_cli dev
 
 This starts the API at `http://127.0.0.1:2024` and connects to [LangGraph Studio](https://smith.langchain.com/studio) for visual graph execution and state inspection.
 
-## Configuration
+## 📋 Configuration
 
 | Variable | Description | Default |
 |----------|-------------|---------|
@@ -228,12 +262,12 @@ This starts the API at `http://127.0.0.1:2024` and connects to [LangGraph Studio
 | `LANGCHAIN_PROJECT` | LangSmith project name | `cache-optimized-code-review` |
 | `LLM_MODEL` | Model for all API calls | `claude-sonnet-4-20250514` |
 
-## Built With
+## 🛠️ Built With
 
 - [LangGraph](https://github.com/langchain-ai/langgraph) — stateful multi-agent orchestration
 - [Anthropic API](https://docs.anthropic.com/) — LLM calls with prompt caching via `cache_control`
 - [LangSmith](https://smith.langchain.com) — tracing, evaluation, and token usage observability
 
-## References
+## 📚 References
 
 - Kevin Frank et al., ["Don't Break the Cache: Optimizing Prompt Caching for Multi-Turn Agentic Systems"](https://arxiv.org/abs/2601.06007) (2025)

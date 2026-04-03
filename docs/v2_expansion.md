@@ -134,13 +134,13 @@ Six code samples with ground truth expected findings:
 | 5 | clean code | Parameterized queries, PBKDF2, `hmac.compare_digest` | 0 (false positive test) |
 | 6 | subtle security | SSRF, timing side-channel, path traversal | 3 findings |
 
-Ground truth uses keyword matching — "sql injection" matches any finding containing that phrase across `issue`, `type`, and `source` fields. Robust to LLM phrasing variance.
+Ground truth uses LLM-based semantic matching — Claude evaluates whether each actual finding describes the same issue as the expected finding, even if worded differently. Falls back to keyword matching if the LLM call fails.
 
 ### Evaluators
 
 | Evaluator | Measures | Score |
 |-----------|---------|-------|
-| **finding_recall** | Did it find expected issues? Keyword match against ground truth | 0.0–1.0 |
+| **finding_recall** | Did it find expected issues? LLM-based semantic matching against ground truth | 0.0–1.0 |
 | **fix_correctness** | Does fixed code resolve issues? LLM-graded via Anthropic SDK | 0.0–1.0 |
 | **token_efficiency** | Cache hit ratio (cache_tokens / input_tokens) | 0.0–1.0 |
 | **agent_efficiency** | Findings per agent spawned (v2 only, N/A for v1) | float |
@@ -335,7 +335,7 @@ V1's code at the project root is untouched. V2 lives in `v2/`. Evals live in `ev
 
 ## Known Limitations & Next Steps
 
-1. **finding_recall ground truth** — keywords need to match actual finding output format, or agent finding extraction needs descriptive text
+1. ~~**finding_recall ground truth**~~ — resolved: replaced keyword matching with LLM-based semantic matching that handles phrasing variance
 2. **Prompt expansion for cache hits** — expand prompts past 1024 tokens to activate Anthropic caching
 3. **evaluate_existing()** — re-score existing experiments with updated evaluators without re-running pipelines
 4. **Comparative evaluation** — wire `preference_evaluator` into the main harness via `evaluate_comparative()`

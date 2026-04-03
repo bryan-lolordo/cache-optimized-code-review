@@ -25,7 +25,8 @@ LLM_MODEL = os.getenv("LLM_MODEL", "claude-sonnet-4-20250514")
 def finding_recall(run: Run, example: Example) -> EvaluationResult:
     """Score how many expected findings the pipeline actually detected.
 
-    Uses case-insensitive keyword matching against Finding['issue'] text.
+    Uses LLM-based semantic matching — asks Claude whether each expected issue
+    is covered by any of the actual findings, regardless of exact wording.
     Score = matched / expected (1.0 if no expected findings).
     """
     actual_findings = (run.outputs or {}).get("findings", [])
@@ -41,25 +42,78 @@ def finding_recall(run: Run, example: Example) -> EvaluationResult:
             comment=f"Clean code: {false_positive_count} false positives",
         )
 
-    matched = []
-    missed = []
+    # format actual findings for the LLM
+    actual_text = "\n".join(
+        f"- [{f.get('severity', '?')}] {f.get('type', '?')}: {f.get('issue', '')}"
+        for f in actual_findings
+    ) or "No findings produced."
 
-    for exp in expected:
-        keyword = exp["keyword"].lower()
-        # search across all text fields in each finding
-        found = any(
-            keyword in " ".join([
-                (f.get("issue", "") or ""),
-                (f.get("type", "") or ""),
-                (f.get("source", "") or ""),
-                (f.get("severity", "") or ""),
-            ]).lower()
-            for f in actual_findings
+    # format expected findings
+    expected_text = "\n".join(
+        f"- [{exp.get('severity', '?')}] {exp.get('type', '?')}: {exp['keyword']}"
+        for exp in expected
+    )
+
+    prompt = f"""You are evaluating a code review pipeline's detection ability.
+
+EXPECTED ISSUES (ground truth):
+{expected_text}
+
+ACTUAL FINDINGS (from the pipeline):
+{actual_text}
+
+For each expected issue, determine if ANY of the actual findings describe the same issue — even if worded differently. For example, "unsanitized query input" matches "sql injection", and "weak hashing algorithm" matches "md5".
+
+Respond with ONLY a JSON object:
+{{
+    "matches": [
+        {{"expected": "keyword", "matched": true/false, "matched_by": "brief quote from actual finding or null"}}
+    ]
+}}"""
+
+    try:
+        response = client.messages.create(
+            model=LLM_MODEL,
+            max_tokens=1000,
+            messages=[{"role": "user", "content": prompt}],
         )
-        if found:
-            matched.append(exp["keyword"])
-        else:
-            missed.append(exp["keyword"])
+        raw = next(
+            (b.text for b in response.content if hasattr(b, "text")), '{"matches": []}'
+        )
+
+        import json
+        raw = raw.strip()
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+        if raw.endswith("```"):
+            raw = raw[:-3]
+        raw = raw.strip()
+
+        result = json.loads(raw)
+        matches = result.get("matches", [])
+
+        matched = [m["expected"] for m in matches if m.get("matched")]
+        missed = [m["expected"] for m in matches if not m.get("matched")]
+
+    except Exception as e:
+        logger.error("finding_recall LLM eval failed: %s", e)
+        # fall back to keyword matching
+        matched = []
+        missed = []
+        for exp in expected:
+            keyword = exp["keyword"].lower()
+            found = any(
+                keyword in " ".join([
+                    (f.get("issue", "") or ""),
+                    (f.get("type", "") or ""),
+                    (f.get("source", "") or ""),
+                ]).lower()
+                for f in actual_findings
+            )
+            if found:
+                matched.append(exp["keyword"])
+            else:
+                missed.append(exp["keyword"])
 
     score = len(matched) / len(expected)
     comment = f"Matched: {matched}" if matched else "No matches"
