@@ -2,27 +2,7 @@
 
 A multi-agent code review system built with [LangGraph](https://github.com/langchain-ai/langgraph) that operationalizes the strategic caching recommendations from ["Don't Break the Cache"](https://arxiv.org/abs/2601.06007) (Kevin Frank et al.) to reduce API costs and latency.
 
----
-
-> ### 📄 For Mike — Technical Pitch
->
-> I put together a customer-facing technical pitch that walks through how LangChain maps to every layer of the prototype-to-production journey:
->
-> ### **👉 [From First Agent to Production Systems](docs/customer_facing_technical_pitch.md)**
->
-> This is the kind of deliverable I'd bring to a pre-sales engagement or a customer discovery session — translating technical depth into a narrative that moves a customer to *yes*. It covers architecture, state management, observability, reliability, evaluation, and infrastructure, all grounded in real results from this project.
->
-> Everything in that pitch maps directly to what you described for this role:
->
-> | What You're Looking For | Where It Shows Up |
-> |---|---|
-> | 🎤 **Technical storytelling in pre-sales** | The entire pitch — complex multi-agent concepts explained as business outcomes, not implementation details |
-> | 🔬 **Technical depth in specific domains** | Deep sections on LangGraph state management, cache optimization, evaluation methodology, and LangGraph Platform deployment |
-> | 🌊 **Ambiguity and pace** | Built across two iterations (V1 → V2), each one adapting to what I learned — same way the DE team operates as LangChain's product evolves |
-> | ⚡ **Nimbleness** | Picked up LangGraph, LangSmith evals, structured tool-calling, the Send API, and LangGraph Platform in a single project |
-> | 📈 **Business acumen** | The pitch is framed around customer value and outcomes — not "look what I built" but "here's why this matters to your team and how it gets you to production" |
->
-> This project is also a proxy for the post-sale motion — showing a customer how to go from a working prototype to something they can trust, scale, and expand across teams, which is exactly how Deployed Engineers drive usage growth on LangSmith.
+> 📄 **[From First Agent to Production Systems](docs/customer_facing_technical_pitch.md)** — A customer-facing technical pitch that walks through the prototype-to-production journey with LangChain, covering architecture, state management, observability, reliability, evaluation, and infrastructure — all grounded in real results from this project.
 
 ---
 
