@@ -157,6 +157,7 @@ Just from scratching the surface of LangGraph.
 | 📊 | **Evaluations** | LangSmith gives quantitative proof of fix correctness — not just "it compiles" |
 | 🌐 | **LangGraph Platform** | Graphs served as live API endpoints with Studio UI for visual inspection |
 | 🧠 | **LangChain Skills** | Instruction files that give coding agents expert knowledge of LangGraph patterns, loaded dynamically only when relevant |
+| 🧱 | **Deep Agents SDK** | Same capabilities as a hand-wired 12-node graph — in ~200 lines with `create_deep_agent()`. Built-in planning, subagent delegation, and file context via middleware |
 
 Every time you go deeper, LangChain already has an answer waiting.
 

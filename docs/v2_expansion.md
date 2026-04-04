@@ -333,6 +333,91 @@ V1's code at the project root is untouched. V2 lives in `v2/`. Evals live in `ev
 
 ---
 
+## 5. V3 — Deep Agents SDK
+
+### Why
+
+V2 proves that dynamic agent planning and critique loops produce better results. But building it required 12 hand-wired nodes, raw Anthropic API calls, manual `Send` fan-out, and a 25-field state schema. The Deep Agents SDK (`deepagents` package) wraps all of that into a single `create_deep_agent()` call with built-in middleware for planning, delegation, and file context.
+
+V3 asks: what if v2's capabilities could be expressed in ~200 lines instead of ~500?
+
+### What changed from V2
+
+| Aspect | V2 | V3 |
+|--------|----|----|
+| **Graph wiring** | 12-node `StateGraph` with manual edges | Single `create_deep_agent()` call |
+| **LLM calls** | Raw `Anthropic()` client with `cache_control` | SDK manages model calls via `langchain-anthropic` |
+| **Parallel dispatch** | Manual `Send` API fan-out with isolated payloads | `task` tool delegates to named subagents |
+| **State schema** | 25-field `DeepReviewState` TypedDict | SDK built-in state + 5 custom tools |
+| **Planning** | Implicit in graph topology | `write_todos` middleware tracks review phases |
+| **Cache enforcement** | Manual 3-rule validator + corrector | SDK handles prompt construction internally |
+| **Files** | 9 files, ~500 lines | 4 files, ~200 lines |
+
+### Architecture
+
+```
+create_deep_agent() orchestrator
+  |
+  |-- write_todos (plan review phases)
+  |
+  |-- task(security_reviewer)    ─┐
+  |-- task(performance_reviewer)  │ subagent delegation
+  |-- task(quality_reviewer)      │ (SDK handles lifecycle)
+  |-- task(test_reviewer)        ─┘
+  |
+  |-- report_finding (record each issue)
+  |
+  |-- apply_fix (fix each issue iteratively)
+  |-- task(fix_critic) (validate each fix)
+  |-- apply_fix (retry if rejected, max 2)
+  |
+  |-- get_review_summary (compile final report)
+```
+
+No graph nodes, no edges, no conditional routing. The LLM orchestrator decides the flow — the SDK provides the tools and middleware.
+
+### Key decisions
+
+**Subagents as text reporters.** V2 gave each agent a `report_finding` tool. V3 subagents have `tools=[]` — they analyze code and return a text report. The orchestrator parses the report and calls `report_finding` itself. This avoids duplicate findings (subagent tool calls + orchestrator recording) and keeps the subagent interface simple.
+
+**Custom tools for structured state.** Five `@tool` functions manage review state: `report_finding`, `get_findings`, `apply_fix`, `get_current_code`, `get_review_summary`. These give the orchestrator structured I/O while the SDK handles the agent loop.
+
+**TodoListMiddleware for planning.** The orchestrator calls `write_todos` at each phase transition (delegate → record → fix → validate → report). This replaces v2's implicit graph topology as the planning mechanism, and the todo state is visible in the stream output.
+
+**SubAgentMiddleware for delegation.** Five named subagents (4 reviewers + 1 critic) are configured at creation time. The orchestrator chooses which to invoke based on the code — same adaptive behavior as v2's dynamic planning, but with predefined specialist roles.
+
+### File structure
+
+```
+v3/
+├── agent.py     # create_deep_agent orchestrator + 5 subagent configs
+├── prompts.py   # System prompts for orchestrator, 4 reviewers, fix critic
+├── tools.py     # Custom tools: report_finding, apply_fix, get_review_summary
+└── run.py       # Entry point with streaming output
+```
+
+### Running
+
+```bash
+# local
+python v3/run.py
+
+# LangGraph Platform (alongside v1 and v2)
+python -m langgraph_cli dev
+```
+
+### Results (first run)
+
+The v3 agent on the same 3-bug demo code (SQL injection, MD5, hardcoded key):
+- Delegated to `security_reviewer` and `quality_reviewer` (skipped performance and test — correct for this code)
+- Recorded 6 unique findings: 1 critical, 2 high, 2 medium, 1 low
+- Applied all 6 fixes in one pass
+- Fix critic approved all fixes
+- 16 API calls, ~1.5 minutes total
+- Final code: parameterized queries, PBKDF2 with salt, env var for API key, type hints, docstrings, error handling
+
+---
+
 ## Known Limitations & Next Steps
 
 1. ~~**finding_recall ground truth**~~ — resolved: replaced keyword matching with LLM-based semantic matching that handles phrasing variance
@@ -341,3 +426,4 @@ V1's code at the project root is untouched. V2 lives in `v2/`. Evals live in `ev
 4. **Comparative evaluation** — wire `preference_evaluator` into the main harness via `evaluate_comparative()`
 5. **Human-in-the-loop** — use LangGraph's `interrupt()` before applying critical-severity fixes
 6. **Production deployment** — deploy to LangGraph Cloud or self-hosted Docker for persistent, multi-tenant access
+7. **V3 evaluation** — run the eval suite against v3 for a three-way comparison (v1 vs v2 vs v3)

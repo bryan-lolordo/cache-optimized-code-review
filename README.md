@@ -6,10 +6,11 @@ A multi-agent code review system built with [LangGraph](https://github.com/langc
 
 ---
 
-Two versions coexist in this repo:
+Three versions coexist in this repo, each demonstrating a different level of abstraction:
 
 - **V1 (root):** Four hardcoded workers analyze code in parallel across security, quality, performance, and test coverage. An iterative fixer loop addresses each issue one at a time. A cache enforcement layer validates and self-corrects every LLM call in the fixer loop.
 - **V2 (`v2/`):** An LLM-driven orchestrator dynamically decides what agents to spawn based on the code. Agents execute in parallel via the `Send` API, report findings through a structured `report_finding` tool, and a critique/reflection loop validates each fix before moving on.
+- **V3 (`v3/`):** Same review capabilities rebuilt with the **Deep Agents SDK**. Replaces v2's manual 12-node `StateGraph` with a single `create_deep_agent()` call. The SDK provides the agent loop, tool calling, task planning (`write_todos`), subagent delegation (`task`), and state management automatically — cutting the codebase from ~500 lines to ~200.
 
 ## 📐 The Three Cache Rules
 
@@ -56,7 +57,7 @@ END
 </details>
 
 <details>
-<summary><strong>V2 — Deep Agents</strong></summary>
+<summary><strong>V2 — Deep Agents (Manual Graph)</strong></summary>
 
 ```
 START
@@ -86,12 +87,47 @@ finalize -> END
 
 </details>
 
-**Key differences from V1:**
+<details>
+<summary><strong>V3 — Deep Agents SDK</strong></summary>
+
+```
+create_deep_agent() orchestrator
+  |
+  |-- write_todos (plan review phases)
+  |
+  |-- task(security_reviewer)  ─┐
+  |-- task(performance_reviewer) │ subagent delegation
+  |-- task(quality_reviewer)     │ (SDK handles lifecycle)
+  |-- task(test_reviewer)       ─┘
+  |
+  |-- report_finding (record each issue)
+  |
+  |-- apply_fix (fix each issue iteratively)
+  |-- task(fix_critic) (validate each fix)
+  |-- apply_fix (retry if rejected, max 2)
+  |
+  |-- get_review_summary (compile final report)
+```
+
+The entire flow is driven by a single agent with the SDK's built-in middleware
+(TodoList, SubAgent, Filesystem) — no manual graph wiring needed.
+
+</details>
+
+**Key differences V1 → V2:**
 - Workers are dynamically planned by the LLM — could be 1, could be 6
 - `Send` API dispatches agents in parallel with isolated payloads
 - Agents report findings via a typed `report_finding` tool (no JSON parsing)
 - Critique/reflection loop replaces syntax-only `test_code` validation
 - Cache enforcement from v1 is reused directly — proves cache rules are topology-independent
+
+**Key differences V2 → V3:**
+- Manual `StateGraph` with 12 nodes → single `create_deep_agent()` call
+- Raw Anthropic API calls → SDK manages model calls via LangChain
+- Manual `Send` fan-out → `task` tool for subagent delegation
+- Custom `DeepReviewState` TypedDict → SDK built-in state + custom tools
+- Manual cache enforcement → SDK handles prompt construction internally
+- ~500 lines across 9 files → ~200 lines across 4 files
 
 ## 🧩 LangGraph Patterns Used
 
@@ -108,6 +144,9 @@ finalize -> END
 | **RetryPolicy** | All LLM nodes use `RetryPolicy(max_attempts=3)` for transient API failures |
 | **Checkpointing** | `MemorySaver` for local execution; platform-managed for deployment |
 | **Streaming** | `graph.stream(stream_mode="updates")` for real-time per-node output |
+| **Deep Agents SDK** | V3: `create_deep_agent()` replaces manual graph wiring with middleware-driven orchestration |
+| **SubAgentMiddleware** | V3: `task` tool delegates to specialist subagents (security, performance, quality, test, critic) |
+| **TodoListMiddleware** | V3: `write_todos` for planning and progress tracking across review phases |
 
 <details>
 <summary><strong>📁 Project Structure</strong></summary>
@@ -145,6 +184,11 @@ finalize -> END
 │       ├── deep_fixer.py        # select_issue, fix_llm, critique_fix, retry_fix, mark_fixed
 │       ├── synthesize.py        # Merge findings from all agents
 │       └── finalize.py          # Compile final report
+├── v3/
+│   ├── agent.py              # create_deep_agent orchestrator + subagent config
+│   ├── prompts.py            # System prompts for orchestrator and all subagents
+│   ├── tools.py              # Custom tools — report_finding, apply_fix, get_review_summary
+│   └── run.py                # V3 entry point with streaming output
 ├── evals/
 │   ├── dataset.py            # 6 test samples with ground truth expected findings
 │   ├── evaluators.py         # Custom evaluators — recall, correctness, efficiency
@@ -203,6 +247,9 @@ python run.py
 # V2 — deep agents, parallel Send, critique/reflection loop
 python v2/run.py
 
+# V3 — Deep Agents SDK, single create_deep_agent() orchestrator
+python v3/run.py
+
 # Evaluation — compare v1 vs v2 on 6 test samples in LangSmith
 python -m evals.run_eval
 
@@ -214,13 +261,14 @@ Traces for all runs are available in [LangSmith](https://smith.langchain.com) un
 
 ## 🌐 LangGraph Platform
 
-Both graphs are served simultaneously via `langgraph.json`:
+All three graphs are served simultaneously via `langgraph.json`:
 
 ```json
 {
   "graphs": {
     "v1_agent": "graph:graph",
-    "v2_agent": "v2.graph:graph"
+    "v2_agent": "v2.graph:graph",
+    "v3_agent": "v3.agent:agent_platform"
   }
 }
 ```
@@ -245,6 +293,7 @@ This starts the API at `http://127.0.0.1:2024` and connects to [LangGraph Studio
 ## 🛠️ Built With
 
 - [LangGraph](https://github.com/langchain-ai/langgraph) — stateful multi-agent orchestration
+- [Deep Agents SDK](https://github.com/langchain-ai/deepagents) — batteries-included agent framework (v3)
 - [Anthropic API](https://docs.anthropic.com/) — LLM calls with prompt caching via `cache_control`
 - [LangSmith](https://smith.langchain.com) — tracing, evaluation, and token usage observability
 

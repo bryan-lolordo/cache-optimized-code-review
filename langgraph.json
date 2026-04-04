@@ -1,7 +1,8 @@
 {
   "graphs": {
     "v1_agent": "graph:graph",
-    "v2_agent": "v2.graph:graph"
+    "v2_agent": "v2.graph:graph",
+    "v3_agent": "v3.agent:agent_platform"
   },
   "dependencies": ["requirements.txt"],
   "env": ".env"
